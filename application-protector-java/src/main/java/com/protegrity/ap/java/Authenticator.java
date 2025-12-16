@@ -1,7 +1,7 @@
 package com.protegrity.ap.java;
 
 /**
- * Handles authentication with Protegrity Developer Edition services.
+ * Handles authentication with Protegrity AI Developer Edition services.
  * 
  * <p>This class manages the authentication process using environment variables
  * and obtains JWT tokens required for API operations. Authentication credentials
@@ -12,7 +12,7 @@ package com.protegrity.ap.java;
  *   <li>{@code DEV_EDITION_API_KEY} - API key for service access</li>
  * </ul>
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class Authenticator {
 

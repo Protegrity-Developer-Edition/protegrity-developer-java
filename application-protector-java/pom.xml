@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.protegrity</groupId>
         <artifactId>protegrity-developer-java-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.1</version>
     </parent>
 
     <artifactId>application-protector-java</artifactId>
@@ -16,6 +16,30 @@
 
     <name>Protegrity Application Protector Java</name>
     <description>Core Java SDK for Protegrity Application Protector data protection operations</description>
+    <url>https://www.protegrity.com/developers</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Protegrity Developer Team</name>
+            <email>info@protegrity.com</email>
+            <organization>Protegrity USA, Inc.</organization>
+            <organizationUrl>https://www.protegrity.com</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/Protegrity-Developer-Edition/protegrity-developer-java.git</connection>
+        <developerConnection>scm:git:git@github.com:Protegrity-Developer-Edition/protegrity-developer-java.git</developerConnection>
+        <url>https://github.com/Protegrity-Developer-Edition/protegrity-developer-java</url>
+    </scm>
 
     <dependencies>
         <!-- JSON Processing -->

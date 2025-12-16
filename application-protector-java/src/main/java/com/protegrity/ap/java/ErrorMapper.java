@@ -10,7 +10,7 @@ import java.util.Map;
  * Protegrity protection services to standardized error codes and descriptions
  * for consistent error handling.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class ErrorMapper {
     /**

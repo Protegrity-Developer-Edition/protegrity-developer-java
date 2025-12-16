@@ -6,10 +6,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Utility class for logging configuration and logger retrieval.
  * 
- * <p>This class provides centralized logger instances for the Protegrity Developer Edition
+ * <p>This class provides centralized logger instances for the Protegrity AI Developer Edition
  * module, using SLF4J as the logging facade.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class LoggerUtil {
     

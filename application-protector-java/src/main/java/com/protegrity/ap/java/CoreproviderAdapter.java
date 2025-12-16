@@ -24,7 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * for data protection operations. It manages data type conversions, encoding/decoding,
  * and request/response handling.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class CoreproviderAdapter {
     private static final Logger logger = LoggerFactory.getLogger(CoreproviderAdapter.class);
@@ -383,11 +383,11 @@ public class CoreproviderAdapter {
   
 
     public String getVersion() {
-        return "1.0.0";
+        return "1.0.1";
     }
 
     public String getCoreVersion() {
-        return "1.0.0";
+        return "1.0.1";
     }
   
     public void flush() throws ProtectorException {

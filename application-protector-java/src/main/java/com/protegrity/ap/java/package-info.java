@@ -20,6 +20,6 @@
  * protector.protect(session, "dataElement", data, protectedData);
  * }</pre>
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 package com.protegrity.ap.java;

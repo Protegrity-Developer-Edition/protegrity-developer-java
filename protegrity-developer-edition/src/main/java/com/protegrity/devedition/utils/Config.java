@@ -6,7 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Configuration management for Protegrity Developer Edition.
+ * Configuration management for Protegrity AI Developer Edition.
  * 
  * <p>This class manages configuration settings for PII discovery and protection operations,
  * including endpoint URLs, entity mappings, masking characters, classification thresholds,
@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory;
  *   <li>Log Level: INFO</li>
  * </ul>
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class Config {
 

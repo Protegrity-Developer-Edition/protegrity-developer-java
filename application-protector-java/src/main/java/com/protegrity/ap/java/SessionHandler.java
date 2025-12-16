@@ -10,7 +10,7 @@ import java.lang.reflect.Field;
  * including timeout detection. Sessions are validated based on a configurable
  * time-to-live duration.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class SessionHandler {
   private int timeToLive = 0;

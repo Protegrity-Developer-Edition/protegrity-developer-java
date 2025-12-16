@@ -1,8 +1,8 @@
 
 <div align="center">
 
-# Protegrity Developer Edition Java
-[![Version](https://img.shields.io/badge/version-1.0.0-green.svg?style=flat)](https://github.com/Protegrity-Developer-Edition/protegrity-developer-java/releases)
+# Protegrity AI Developer Edition Java
+[![Version](https://img.shields.io/badge/version-1.0.1-green.svg?style=flat)](https://github.com/Protegrity-Developer-Edition/protegrity-developer-java/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](https://github.com/Protegrity-Developer-Edition/protegrity-developer-java/blob/main/LICENSE)
 [![Java 11+](https://img.shields.io/badge/java-11+-blue.svg?style=flat)](https://www.oracle.com/java/technologies/javase-jdk11-downloads.html)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black)](https://www.linux.org/)
@@ -13,7 +13,7 @@
 
 </div>
 
-Welcome to the `protegrity-developer-java` repository, part of the Protegrity Developer Edition suite. This repository provides the Java SDK for integrating Protegrity's Data Discovery and Protection APIs into GenAI and traditional applications.
+Welcome to the `protegrity-developer-java` repository, part of the Protegrity AI Developer Edition suite. This repository provides the Java SDK for integrating Protegrity's Data Discovery and Protection APIs into GenAI and traditional applications.
 Customize, compile, and use the modules as per your requirement.
 
 > **💡Note:** This SDK should be built and used only if you intend to modify the source code or default behavior.
@@ -24,11 +24,11 @@ Customize, compile, and use the modules as per your requirement.
     - [Why This Matters](#why-this-matters)
 2. [Repository Structure](#repository-structure)
 3. [Features](#features)
-    - [Protegrity Developer Edition Module](#protegrity-developer-edition-module)
+    - [Protegrity AI Developer Edition Module](#protegrity-developer-edition-module)
     - [Application Protector Java Module](#application-protector-java-module)
 4. [Getting Started](#getting-started)
    - [Prerequisites](#prerequisites)
-5. [Protegrity Developer Edition Module](#protegrity-developer-edition-module-1)
+5. [Protegrity AI Developer Edition Module](#protegrity-developer-edition-module-1)
    - [Usage Examples](#usage-examples)
      - [Find and Redact](#find-and-redact)
      - [Find and Protect](#find-and-protect)
@@ -72,14 +72,14 @@ Sensitive data shows up in more places than you'd expect — logs, payloads, pro
 │   │   ├── main/java/com/protegrity/ap/java/
 │   │   └── test/
 │   └── target/
-│       └── ApplicationProtectorJava-1.0.0.jar
+│       └── ApplicationProtectorJava-1.0.1.jar
 ├── protegrity-developer-edition/            # Developer utilities module
 │   ├── pom.xml
 │   ├── src/
 │   │   ├── main/java/com/protegrity/devedition/
 │   │   └── test/
 │   └── target/
-│       └── ProtegrityDeveloperJava-1.0.0.jar
+│       └── ProtegrityDeveloperJava-1.0.1.jar
 └── integration-tests/                        # Cucumber BDD tests
     ├── pom.xml
     ├── src/
@@ -91,7 +91,7 @@ Sensitive data shows up in more places than you'd expect — logs, payloads, pro
 
 ## Features
 
-### Protegrity Developer Edition Module
+### Protegrity AI Developer Edition Module
 
 | Feature                | Description                                                                                   |
 |------------------------|-----------------------------------------------------------------------------------------------|
@@ -119,7 +119,7 @@ Sensitive data shows up in more places than you'd expect — logs, payloads, pro
 - [Java 11 or later](https://www.oracle.com/java/technologies/javase-jdk11-downloads.html)
 - [Maven 3.6+](https://maven.apache.org/download.cgi) or use the included Maven wrapper
 
-### Protegrity Developer Edition Prerequisites
+### Protegrity AI Developer Edition Prerequisites
 
 No additional prerequisites required beyond the common ones.
 
@@ -129,7 +129,7 @@ No additional prerequisites required beyond the common ones.
 
    **Obtaining Credentials**
 
-    **Developer Edition Portal Registration**
+    **AI Developer Edition Portal Registration**
     - Visit [https://www.protegrity.com/developers/get-api-credentials](https://www.protegrity.com/developers/get-api-credentials)
     - Register for a developer account.
     - You will receive an email with your API Key and Password.
@@ -147,8 +147,8 @@ No additional prerequisites required beyond the common ones.
     ./mvnw clean install
     ```
     The build completes and the success message is displayed. This creates:
-    - `application-protector-java/target/ApplicationProtectorJava-1.0.0.jar` (fat JAR with dependencies)
-    - `protegrity-developer-edition/target/ProtegrityDeveloperJava-1.0.0.jar` (fat JAR with dependencies)
+    - `application-protector-java/target/ApplicationProtectorJava-1.0.1.jar` (fat JAR with dependencies)
+    - `protegrity-developer-edition/target/ProtegrityDeveloperJava-1.0.1.jar` (fat JAR with dependencies)
     - Maven artifacts in your local repository (`.m2/repository`)
 
 4.  To run integration tests (optional):
@@ -156,8 +156,8 @@ No additional prerequisites required beyond the common ones.
     ./mvnw clean verify -DskipITs=false
     ```
 
-## Protegrity Developer Edition Module
-> **💡Note:** Ensure that the Protegrity Developer Edition is running before using this module.
+## Protegrity AI Developer Edition Module
+> **💡Note:** Ensure that the Protegrity AI Developer Edition is running before using this module.
 For setup instructions, please refer to the documentation [here](https://github.com/Protegrity-Developer-Edition/protegrity-developer-edition/blob/main/README.md).
 
 ### Usage Examples
@@ -307,11 +307,11 @@ public class BulkProtectExample {
 }
 ```
 
-> **💡Note:** You **do not** need Protegrity Developer Edition running before executing just the Application Protector Java Module.
+> **💡Note:** You **do not** need Protegrity AI Developer Edition running before executing just the Application Protector Java Module.
 
 ## Documentation
 
-- [Protegrity Developer Edition documentation](http://developer.docs.protegrity.com/)
+- [Protegrity AI Developer Edition documentation](http://developer.docs.protegrity.com/)
 - For API reference and tutorials, visit [Developer Portal](https://www.protegrity.com/developers)
 - For more information about Data Discovery, refer to the [Data Discovery documentation]( https://docs.protegrity.com/data-discovery/1.1.1/docs/).
 - For more information about Semantic Guardrails, refer to the [Semantic Guardrails documentation]( https://docs.protegrity.com/sem_guardrail/1.1.0/docs/).

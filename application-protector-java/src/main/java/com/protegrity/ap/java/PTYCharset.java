@@ -19,7 +19,7 @@ import java.nio.charset.StandardCharsets;
  * </ul>
  *
  * @author <a href="http://www.protegrity.com">Protegrity</a>
- * @since 1.0.0
+ * @since 1.0.1
  */
 public enum PTYCharset {
   UTF8("UTF-8"), /* UTF-8 encoding */

@@ -17,11 +17,11 @@ package com.protegrity.ap.java;
  * </ul>
  *
  * @author <a href="http://www.protegrity.com">Protegrity</a>
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class Protector {
   
-  /** The hostname for Protegrity Developer Edition API. */
+  /** The hostname for Protegrity AI Developer Edition API. */
   public static final String HOST = "api.developer-edition.protegrity.com";
   
   /** The API version. */

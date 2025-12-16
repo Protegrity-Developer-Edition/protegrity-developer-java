@@ -29,7 +29,7 @@ import java.net.URI;
  * JsonNode entities = Discover.discover(text);
  * }</pre>
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class Discover {
     

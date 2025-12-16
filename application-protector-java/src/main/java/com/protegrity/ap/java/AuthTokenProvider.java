@@ -11,17 +11,17 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 /**
- * Provides JWT token retrieval functionality for Protegrity Developer Edition authentication.
+ * Provides JWT token retrieval functionality for Protegrity AI Developer Edition authentication.
  * 
  * <p>This class handles HTTP communication with the Protegrity authentication service
  * to obtain JWT tokens required for API operations.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class AuthTokenProvider {
     
     /**
-     * The hostname for Protegrity Developer Edition API.
+     * The hostname for Protegrity AI Developer Edition API.
      */
     public static final String DEV_EDITION_HOST = "api.developer-edition.protegrity.com";
     

@@ -6,7 +6,7 @@ package com.protegrity.ap.java;
  * <p>This class encapsulates the result of a JWT token request, including
  * the HTTP status code, JWT token, API key, and any error messages.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public  class AuthTokenResponse {
     private int statusCode;

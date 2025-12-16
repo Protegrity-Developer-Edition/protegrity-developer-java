@@ -7,11 +7,11 @@
 
     <groupId>com.protegrity</groupId>
     <artifactId>protegrity-developer-java-parent</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <packaging>pom</packaging>
 
     <name>Protegrity Developer Java Parent</name>
-    <description>Parent POM for Protegrity Application Protector Java and Developer Edition modules</description>
+    <description>Parent POM for Protegrity Application Protector Java and AI Developer Edition modules</description>
     <url>https://www.protegrity.com/developers</url>
 
     <licenses>

@@ -13,7 +13,7 @@ import java.text.ParseException;
  * and managing sessions for data protection operations. It maintains singleton
  * instances of both the Protector and SessionObject.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class ProtectorUtil {
     

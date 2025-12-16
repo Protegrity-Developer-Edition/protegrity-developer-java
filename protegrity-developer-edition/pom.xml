@@ -8,14 +8,38 @@
     <parent>
         <groupId>com.protegrity</groupId>
         <artifactId>protegrity-developer-java-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.1</version>
     </parent>
 
     <artifactId>protegrity-developer-edition</artifactId>
     <packaging>jar</packaging>
 
-    <name>Protegrity Developer Edition</name>
+    <name>Protegrity AI Developer Edition</name>
     <description>Developer Edition utilities for data discovery and protection in GenAI and traditional applications</description>
+    <url>https://www.protegrity.com/developers</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Protegrity Developer Team</name>
+            <email>info@protegrity.com</email>
+            <organization>Protegrity USA, Inc.</organization>
+            <organizationUrl>https://www.protegrity.com</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/Protegrity-Developer-Edition/protegrity-developer-java.git</connection>
+        <developerConnection>scm:git:git@github.com:Protegrity-Developer-Edition/protegrity-developer-java.git</developerConnection>
+        <url>https://github.com/Protegrity-Developer-Edition/protegrity-developer-java</url>
+    </scm>
 
     <dependencies>
         <!-- Dependency on application-protector-java -->

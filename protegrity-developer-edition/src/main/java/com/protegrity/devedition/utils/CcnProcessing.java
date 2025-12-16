@@ -10,7 +10,7 @@ import java.util.Map;
  * (such as spaces or dashes) from credit card numbers. This is useful for
  * normalizing CCNs before protection and restoring the original format afterward.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class CcnProcessing {
     

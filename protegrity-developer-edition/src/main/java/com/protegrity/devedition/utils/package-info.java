@@ -1,5 +1,5 @@
 /**
- * Protegrity Developer Edition utility classes for PII detection and data protection.
+ * Protegrity AI Developer Edition utility classes for PII detection and data protection.
  * 
  * <p>This package provides utility classes for discovering, classifying, and protecting
  * Personally Identifiable Information (PII) in unstructured text. It includes functionality
@@ -21,6 +21,6 @@
  * String redacted = PiiProcessing.redactData(entities, text);
  * }</pre>
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 package com.protegrity.devedition.utils;

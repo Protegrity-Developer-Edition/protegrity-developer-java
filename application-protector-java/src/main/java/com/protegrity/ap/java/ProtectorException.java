@@ -8,7 +8,7 @@ package com.protegrity.ap.java;
  * error handling.
  *
  * @author <a href="http://www.protegrity.com">Protegrity</a>
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class ProtectorException extends Exception {
 

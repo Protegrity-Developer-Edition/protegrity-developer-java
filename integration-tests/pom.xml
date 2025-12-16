@@ -8,14 +8,14 @@
     <parent>
         <groupId>com.protegrity</groupId>
         <artifactId>protegrity-developer-java-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.1</version>
     </parent>
 
     <artifactId>integration-tests</artifactId>
     <packaging>pom</packaging>
 
     <name>Protegrity Integration Tests</name>
-    <description>Integration tests for Application Protector Java and Developer Edition</description>
+    <description>Integration tests for Application Protector Java and AI Developer Edition</description>
 
     <dependencies>
         <!-- Dependencies on both modules for integration testing -->

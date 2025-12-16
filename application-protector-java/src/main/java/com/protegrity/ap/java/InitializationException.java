@@ -6,7 +6,7 @@ package com.protegrity.ap.java;
  * <p>This exception is typically thrown when required environment variables
  * are missing or authentication with Protegrity services fails during startup.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class InitializationException extends RuntimeException {
 

@@ -6,7 +6,7 @@ package com.protegrity.ap.java;
  * <p>This class encapsulates the success status and the converted array result
  * from data type conversion operations.
  * 
- * @since 1.0.0
+ * @since 1.0.1
  */
 public class ParseResult {
     private final boolean success;

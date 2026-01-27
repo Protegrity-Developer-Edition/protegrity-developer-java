@@ -130,7 +130,7 @@ No additional prerequisites required beyond the common ones.
    **Obtaining Credentials**
 
     **AI Developer Edition Portal Registration**
-    - Visit [https://www.protegrity.com/developers/get-api-credentials](https://www.protegrity.com/developers/get-api-credentials)
+    - Visit [https://www.protegrity.com/developers/dev-edition-api](https://www.protegrity.com/developers/dev-edition-api)
     - Register for a developer account.
     - You will receive an email with your API Key and Password.
 
@@ -315,7 +315,7 @@ public class BulkProtectExample {
 - For API reference and tutorials, visit [Developer Portal](https://www.protegrity.com/developers)
 - For more information about Data Discovery, refer to the [Data Discovery documentation]( https://docs.protegrity.com/data-discovery/1.1.1/docs/).
 - For more information about Semantic Guardrails, refer to the [Semantic Guardrails documentation]( https://docs.protegrity.com/sem_guardrail/1.1.0/docs/).
-- For more information about Application Protector Java, refer to the [Application Protector Java documentation]( https://docs.protegrity.com/10.0/protectors/application_protector/ap_java/).
+- For more information about Application Protector Java, refer to the [Application Protector Java documentation]( https://docs.protegrity.com/protectors/10.0/docs/ap/ap_java/).
 
 ## Sample Use Case
 

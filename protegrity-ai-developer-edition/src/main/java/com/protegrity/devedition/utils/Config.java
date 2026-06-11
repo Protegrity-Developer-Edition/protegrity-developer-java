@@ -33,6 +33,7 @@ public class Config {
     private static final String DEFAULT_METHOD = "redact";
     
     private static String endpointUrl;
+    private static String transformUrl;
     private static Map<String, String> namedEntityMap;
     private static String maskingChar;
     private static double classificationScoreThreshold;
@@ -43,8 +44,12 @@ public class Config {
     static {
         // Initialize default configuration
         endpointUrl = System.getenv().getOrDefault(
-            "DISCOVER_URL", 
-            "http://localhost:8580/pty/data-discovery/v1.1/classify"
+            "DISCOVER_URL",
+            "http://localhost:8580/pty/data-discovery/v2/classify/text"
+        );
+        transformUrl = System.getenv().getOrDefault(
+            "TRANSFORM_URL",
+            "http://localhost:8580/pty/data-discovery/v2/transform/label"
         );
         namedEntityMap = new HashMap<>();
         maskingChar = DEFAULT_MASKING_CHAR;
@@ -56,20 +61,38 @@ public class Config {
     
     /**
      * Returns the discovery endpoint URL.
-     * 
+     *
      * @return the endpoint URL
      */
     public static String getEndpointUrl() {
         return endpointUrl;
     }
-    
+
     /**
      * Sets the discovery endpoint URL.
-     * 
+     *
      * @param url the endpoint URL to set
      */
     public static void setEndpointUrl(String url) {
         endpointUrl = url;
+    }
+
+    /**
+     * Returns the transform/label endpoint URL.
+     *
+     * @return the transform URL
+     */
+    public static String getTransformUrl() {
+        return transformUrl;
+    }
+
+    /**
+     * Sets the transform/label endpoint URL.
+     *
+     * @param url the transform URL to set
+     */
+    public static void setTransformUrl(String url) {
+        transformUrl = url;
     }
     
     /**
@@ -201,15 +224,19 @@ public class Config {
      */
     public static void configure(
             String endpointUrl,
+            String transformUrl,
             Map<String, String> namedEntityMap,
             String maskingChar,
             Double classificationScoreThreshold,
             String method,
             Boolean enableLogging,
             String logLevel) {
-        
+
         if (endpointUrl != null) {
             setEndpointUrl(endpointUrl);
+        }
+        if (transformUrl != null) {
+            setTransformUrl(transformUrl);
         }
         if (namedEntityMap != null) {
             setNamedEntityMap(namedEntityMap);

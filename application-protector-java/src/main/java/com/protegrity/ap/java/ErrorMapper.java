@@ -160,6 +160,7 @@ public class ErrorMapper {
         ERROR_MAPPING.put("User not authorized. Refer to audit log for details.", "3, The user does not have the appropriate permissions to perform the requested operation.");
         ERROR_MAPPING.put("Protect failed. Data element not found. Refer to audit log for details.", "2, The data element could not be found in the policy.");
         ERROR_MAPPING.put("Unprotect failed. Data element not found. Refer to audit log for details.", "2, The data element could not be found in the policy.");
+        ERROR_MAPPING.put("Reprotect failed. Data element not found. Refer to audit log for details.", "2, The data element could not be found in the policy.");
         ERROR_MAPPING.put("Integer input error. Only digits allowed", "44, The content of the input data is not valid.");
         ERROR_MAPPING.put("Integer input out of range. Valid values are -2147483648 to 2147483647", "44, The content of the input data is not valid.");
         ERROR_MAPPING.put("Invalid data length", "44, The content of the input data is not valid.");
@@ -182,7 +183,9 @@ public class ErrorMapper {
         // If not found, try partial match
         if (mapped == null) {
             for (Map.Entry<String, String> entry : ERROR_MAPPING.entrySet()) {
-                if (normalizedMessage.contains(entry.getKey())) {
+                String key = entry.getKey();
+                String keyStripped = key.replaceAll("[.]+$", "");
+                if (normalizedMessage.contains(key) || normalizedMessage.contains(keyStripped)) {
                     mapped = entry.getValue();
                     break;
                 }

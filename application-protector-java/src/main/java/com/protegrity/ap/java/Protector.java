@@ -1,5 +1,12 @@
 package com.protegrity.ap.java;
 
+import com.protegrity.ap.java.auth.AuthProvider;
+import com.protegrity.ap.java.auth.AuthProviderFactory;
+import com.protegrity.ap.java.auth.AuthenticationException;
+import com.protegrity.ap.java.config.SDKConfig;
+import com.protegrity.ap.java.stats.UsageCollector;
+import com.protegrity.ap.java.stats.StatsWriter;
+
 /**
  * Main entry point for Protegrity data protection operations.
  *
@@ -41,6 +48,10 @@ public class Protector {
   private static SessionHandler sessionHandler = null;
   private String apiKey ;
   private String jwtToken;
+  private AuthProvider authProvider;
+  private SDKConfig sdkConfig;
+  private UsageCollector statsCollector;
+  private static boolean shutdownHookRegistered = false;
 
   /**
    * Private constructor for singleton pattern.
@@ -55,13 +66,42 @@ public class Protector {
   public static synchronized Protector getProtector() throws ProtectorException {
     if (instance == null) {
      try {
-            Authenticator authenticator = new Authenticator();
-            String apiKey = authenticator.getApiKey();
-            String jwtToken = authenticator.getJwtToken();
+            SDKConfig config = SDKConfig.load();
+            String authMode = AuthProviderFactory.detectAuthMode();
+            AuthProvider provider = AuthProviderFactory.create(authMode);
+
             sessionHandler = new SessionHandler(15);
             instance = new Protector(sessionHandler);
-            instance.apiKey = apiKey;
-            instance.jwtToken = jwtToken;
+            instance.sdkConfig = config;
+            instance.authProvider = provider;
+
+            // Legacy compat — keep apiKey/jwtToken for old sendApiRequest calls
+            if ("cognito".equals(authMode)) {
+                com.protegrity.ap.java.auth.CognitoAuthProvider cognito =
+                    (com.protegrity.ap.java.auth.CognitoAuthProvider) provider;
+                instance.apiKey = cognito.getApiKey();
+                instance.jwtToken = cognito.getJwtToken();
+            }
+
+            // Usage statistics (only for DE mode)
+            instance.statsCollector = new UsageCollector(config.isDeveloperEdition());
+
+            // Register JVM shutdown hook for stats flush (once)
+            if (!shutdownHookRegistered) {
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    try {
+                        if (instance != null && instance.statsCollector != null
+                            && instance.statsCollector.isEnabled()) {
+                            StatsWriter.flush(instance.statsCollector.getSessionData());
+                        }
+                    } catch (Exception e) {
+                        System.err.println("[protegrity-sdk] Failed to flush usage stats: " + e.getMessage());
+                    }
+                }));
+                shutdownHookRegistered = true;
+            }
+        } catch (AuthenticationException e) {
+            throw new ProtectorException("Failed to Initialize Protector: " + e.getMessage(), e);
         } catch (InitializationException e) {
          throw new ProtectorException("Failed to Initialize Protector", e);
       }
@@ -126,8 +166,11 @@ public class Protector {
    * @throws ProtectorException When input is empty or null
    */
   public synchronized SessionObject createSession(String policyUser) throws ProtectorException {
-    
-    return sessionHandler.createSession(policyUser);
+    SessionObject session = sessionHandler.createSession(policyUser);
+    if (statsCollector != null) {
+        statsCollector.recordSession(policyUser);
+    }
+    return session;
   }
 
   /**
@@ -141,6 +184,18 @@ public class Protector {
   @Deprecated
   public synchronized void closeSession(SessionObject session) throws ProtectorException {
     sessionHandler.closeSession(session);
+    flushStats();
+  }
+
+  // Stats recording helpers
+  private void recordProtectStats(String dataElementName, boolean success) {
+      if (success && statsCollector != null) statsCollector.recordProtect(dataElementName);
+  }
+  private void recordUnprotectStats(String dataElementName, boolean success) {
+      if (success && statsCollector != null) statsCollector.recordUnprotect(dataElementName);
+  }
+  private void recordReprotectStats(String oldDe, String newDe, boolean success) {
+      if (success && statsCollector != null) statsCollector.recordReprotect(oldDe, newDe);
   }
 
   /**
@@ -160,7 +215,7 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
           String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  short[].class, ENCODING_UTF8);
           boolean success = result.isSuccess();
           if(success){
@@ -168,7 +223,8 @@ public class Protector {
              System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
           }
           
-          return success;
+          recordProtectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -189,14 +245,15 @@ public class Protector {
           byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
           String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj,response,  byte[][].class, ENCODING_BASE64);
           boolean success = result.isSuccess();
           if(success){
           byte[][] converted = (byte[][]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
           }
-          return success;
+          recordProtectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -221,12 +278,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
      String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  short[].class, ENCODING_UTF8);
           boolean success = result.isSuccess();
           short[] converted = (short[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordProtectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -252,12 +310,13 @@ public class Protector {
           byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
           String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
           boolean success = result.isSuccess();
           byte[][] converted = (byte[][]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordProtectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -277,13 +336,14 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  int[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         if(success){
           int[] converted = (int[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
         }
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -305,11 +365,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -335,11 +396,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
       String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  int[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         int[] converted = (int[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -366,11 +428,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -391,11 +454,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  long[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -417,11 +481,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -447,11 +512,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  long[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -478,11 +544,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -502,12 +569,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
           String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  float[].class, ENCODING_UTF8);
           boolean success = result.isSuccess();
           float[] converted = (float[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordProtectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -527,12 +595,13 @@ public class Protector {
           byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
           String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
           boolean success = result.isSuccess();
           byte[][] converted = (byte[][]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordProtectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -551,11 +620,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  double[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         double[] converted = (double[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -576,11 +646,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -603,11 +674,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  java.util.Date[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         java.util.Date[] converted = (java.util.Date[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -626,11 +698,12 @@ public class Protector {
       SessionObject sessionObj, String dataElementName, String[] input, String[] output)
       throws ProtectorException, SessionTimeoutException {
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, input, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
       }
 
@@ -651,11 +724,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -680,11 +754,12 @@ public class Protector {
       byte[] externalIv)
       throws ProtectorException, SessionTimeoutException {
       String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, input, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -711,11 +786,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -735,11 +811,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  char[][].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -760,11 +837,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -790,11 +868,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  char[][].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -821,11 +900,12 @@ public class Protector {
         byte[][] inputBytes = coreproviderAdapter.convertToByteArray(input, ENCODING_UTF8);
         String[] stringInput = coreproviderAdapter.convertToStringArray(inputBytes);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
       }
 
@@ -850,11 +930,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -882,11 +963,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -915,11 +997,12 @@ public class Protector {
       byte[] externalTweak)
       throws ProtectorException, SessionTimeoutException {
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, input, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_PROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_PROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordProtectStats(dataElementName, success);
         return success;
   }
 
@@ -939,12 +1022,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
           String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, short[].class, ENCODING_UTF8);
           boolean success = result.isSuccess();
           short[] converted = (short[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordUnprotectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -963,12 +1047,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
           String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, short[].class, ENCODING_BASE64);
           boolean success = result.isSuccess();
           short[] converted = (short[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordUnprotectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -993,12 +1078,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
           String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, short[].class, ENCODING_UTF8);
           boolean success = result.isSuccess();
           short[] converted = (short[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordUnprotectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -1023,12 +1109,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
       String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, short[].class, ENCODING_BASE64);
           boolean success = result.isSuccess();
           short[] converted = (short[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordUnprotectStats(dataElementName, success);
+        return success;
   }
 
   /**
@@ -1047,11 +1134,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, int[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         int[] converted = (int[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1071,11 +1159,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, int[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         int[] converted = (int[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1101,11 +1190,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, int[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         int[] converted = (int[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1131,11 +1221,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, int[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         int[] converted = (int[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1155,11 +1246,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, long[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1179,11 +1271,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, long[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1209,11 +1302,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, long[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1239,11 +1333,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, long[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1263,11 +1358,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, float[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         float[] converted = (float[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1287,11 +1383,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, float[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         float[] converted = (float[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1311,11 +1408,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, double[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         double[] converted = (double[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1335,11 +1433,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, double[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         double[] converted = (double[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1362,11 +1461,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  java.util.Date[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         java.util.Date[] converted = (java.util.Date[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1385,11 +1485,12 @@ public class Protector {
       SessionObject sessionObj, String dataElementName, String[] input, String[] output)
       throws ProtectorException, SessionTimeoutException {
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, input, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
       }
 
@@ -1409,11 +1510,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1438,11 +1540,12 @@ public class Protector {
       byte[] externalIv)
       throws ProtectorException, SessionTimeoutException {
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, input, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1468,11 +1571,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1492,11 +1596,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  char[][].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1516,11 +1621,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, char[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1546,11 +1652,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  char[][].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1576,11 +1683,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response, char[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1606,11 +1714,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1638,11 +1747,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, stringInput, externalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1671,11 +1781,12 @@ public class Protector {
       byte[] externalTweak)
       throws ProtectorException, SessionTimeoutException {
         String jsonPayload = coreproviderAdapter.buildProtectPayload(sessionObj.getUser(), dataElementName, input, externalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_UNPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_UNPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordUnprotectStats(dataElementName, success);
         return success;
   }
 
@@ -1702,12 +1813,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
           String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName,stringInput, null, null, ENCODING_UTF8);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  short[].class, ENCODING_UTF8);
           boolean success = result.isSuccess();
           short[] converted = (short[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordReprotectStats(oldDataElementName, newDataElementName, success);
+        return success;
   }
 
   /**
@@ -1739,12 +1851,13 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
           String[] stringInput = coreproviderAdapter.convertToStringArray(input);
           String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName,stringInput, newExternalIv, oldExternalIv, ENCODING_UTF8);
-          String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+          String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
           ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  short[].class, ENCODING_UTF8);
           boolean success = result.isSuccess();
           short[] converted = (short[]) result.getConvertedArray();
           System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
-          return success;
+          recordReprotectStats(oldDataElementName, newDataElementName, success);
+        return success;
   }
 
   /**
@@ -1770,11 +1883,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, null, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  int[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         int[] converted = (int[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -1807,11 +1921,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, newExternalIv, oldExternalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  int[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         int[] converted = (int[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -1838,11 +1953,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, null, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  long[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -1875,11 +1991,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, newExternalIv, oldExternalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  long[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         long[] converted = (long[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
        
   }
@@ -1907,11 +2024,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, null, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  float[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         float[] converted = (float[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -1938,11 +2056,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, null, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  double[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         double[] converted = (double[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -1969,11 +2088,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, null, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  java.util.Date[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         java.util.Date[] converted = (java.util.Date[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -1999,11 +2119,12 @@ public class Protector {
       String[] output)
       throws ProtectorException, SessionTimeoutException {
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, input, null, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -2035,11 +2156,12 @@ public class Protector {
       byte[] oldExternalIv)
       throws ProtectorException, SessionTimeoutException {
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, input, newExternalIv, oldExternalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  String[].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         String[] converted = (String[]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -2066,11 +2188,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, null, null, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  char[][].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -2103,11 +2226,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, newExternalIv, oldExternalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  char[][].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         char[][] converted = (char[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -2136,11 +2260,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, null, null, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -2175,11 +2300,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, newExternalIv, oldExternalIv, ENCODING_BASE64);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_BASE64);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -2219,11 +2345,12 @@ public class Protector {
       throws ProtectorException, SessionTimeoutException {
         String[] stringInput = coreproviderAdapter.convertToStringArray(input);
         String jsonPayload = coreproviderAdapter.buildReprotectPayload(sessionObj.getUser(), newDataElementName, oldDataElementName, stringInput, newExternalIv, oldExternalIv, ENCODING_UTF8);
-        String response = coreproviderAdapter.sendApiRequest(OPERATION_REPROTECT, instance.jwtToken, instance.apiKey, jsonPayload);
+        String response = coreproviderAdapter.sendRequest(OPERATION_REPROTECT, jsonPayload, instance.authProvider, instance.sdkConfig);
         ParseResult result = coreproviderAdapter.parseResultsToOutput(sessionObj, response,  byte[][].class, ENCODING_UTF8);
         boolean success = result.isSuccess();
         byte[][] converted = (byte[][]) result.getConvertedArray();
         System.arraycopy(converted, 0, output, 0, Math.min(output.length, converted.length));
+        recordReprotectStats(oldDataElementName, newDataElementName, success);
         return success;
   }
 
@@ -2235,5 +2362,17 @@ public class Protector {
    */
   public void flushAudits() throws ProtectorException {
     coreproviderAdapter.flush();
+  }
+
+  /**
+   * Flush usage statistics to disk immediately.
+   *
+   * <p>Stats are also flushed automatically on JVM shutdown, but calling this method
+   * ensures stats are persisted even if the JVM exits abnormally.
+   */
+  public void flushStats() {
+      if (statsCollector != null && statsCollector.isEnabled()) {
+          StatsWriter.flush(statsCollector.getSessionData());
+      }
   }
 }

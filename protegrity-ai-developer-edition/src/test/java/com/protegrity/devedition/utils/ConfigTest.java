@@ -11,7 +11,7 @@ public class ConfigTest {
     @Before
     public void setUp() {
         // Reset to defaults before each test
-        Config.setEndpointUrl("http://localhost:8580/pty/data-discovery/v1.1/classify");
+        Config.setEndpointUrl("http://localhost:8580/pty/data-discovery/v2/classify/text");
         Config.setNamedEntityMap(new HashMap<>());
         Config.setMaskingChar("#");
         Config.setClassificationScoreThreshold(0.6);
@@ -150,6 +150,7 @@ public class ConfigTest {
         
         Config.configure(
             "http://test:8080/api",
+            "http://test:8580/transform",
             entityMap,
             "*",
             0.75,
@@ -171,7 +172,7 @@ public class ConfigTest {
     public void testConfigureWithNullParameters() {
         String originalUrl = Config.getEndpointUrl();
         
-        Config.configure(null, null, null, null, null, null, null);
+        Config.configure(null, null, null, null, null, null, null, null);
         
         // Should not change when nulls are passed
         assertEquals(originalUrl, Config.getEndpointUrl());
@@ -181,6 +182,7 @@ public class ConfigTest {
     public void testConfigurePartialParameters() {
         Config.configure(
             "http://partial:8080/api",
+            null,
             null,
             null,
             0.9,

@@ -7,11 +7,11 @@
 
     <parent>
         <groupId>com.protegrity</groupId>
-        <artifactId>protegrity-developer-java-parent</artifactId>
-        <version>1.0.1</version>
+        <artifactId>protegrity-ai-developer-java-parent</artifactId>
+        <version>1.1.0</version>
     </parent>
 
-    <artifactId>protegrity-developer-edition</artifactId>
+    <artifactId>protegrity-ai-developer-edition</artifactId>
     <packaging>jar</packaging>
 
     <name>Protegrity AI Developer Edition</name>
@@ -125,7 +125,7 @@
                             <goal>single</goal>
                         </goals>
                         <configuration>
-                            <finalName>ProtegrityDeveloperJava-${project.version}</finalName>
+                            <finalName>ProtegrityAiDeveloperJava-${project.version}</finalName>
                             <appendAssemblyId>false</appendAssemblyId>
                             <attach>false</attach>
                             <descriptors>

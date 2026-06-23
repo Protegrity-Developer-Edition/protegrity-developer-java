@@ -6,8 +6,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.protegrity</groupId>
-    <artifactId>protegrity-developer-java-parent</artifactId>
-    <version>1.0.1</version>
+    <artifactId>protegrity-ai-developer-java-parent</artifactId>
+    <version>1.1.0</version>
     <packaging>pom</packaging>
 
     <name>Protegrity Developer Java Parent</name>
@@ -32,14 +32,14 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/Protegrity-Developer-Edition/protegrity-developer-java.git</connection>
-        <developerConnection>scm:git:git@github.com:Protegrity-Developer-Edition/protegrity-developer-java.git</developerConnection>
-        <url>https://github.com/Protegrity-Developer-Edition/protegrity-developer-java</url>
+        <connection>scm:git:git://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java.git</connection>
+        <developerConnection>scm:git:git@github.com:Protegrity-AI-Developer-Edition/protegrity-ai-developer-java.git</developerConnection>
+        <url>https://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java</url>
     </scm>
 
     <modules>
         <module>application-protector-java</module>
-        <module>protegrity-developer-edition</module>
+        <module>protegrity-ai-developer-edition</module>
         <module>integration-tests</module>
     </modules>
 

@@ -57,10 +57,10 @@ public class SecureFind {
     }
     
     /**
-     * Redact or mask PII entities in the input text.
-     * Uses index-based slicing to ensure precise replacement of PII entities
-     * at known character positions. This avoids accidental replacement of repeated
-     * entities and ensures correctness when multiple PII spans are present.
+     * Redact or mask PII entities in the input text using the transform/label API.
+     * Uses the v2 transform/label endpoint (equivalent to Python's find_and_redact).
+     * When method is "redact", returns pre-redacted text with [ENTITY_TYPE] labels.
+     * When method is "mask", replaces entity spans with the configured masking character.
      *
      * @param text Input text to process
      * @return Redacted or masked text
@@ -68,13 +68,7 @@ public class SecureFind {
      */
     public static String findAndRedact(String text) throws Exception {
         try {
-            JsonNode piiEntities = Discover.discover(text);
-            if (piiEntities != null && piiEntities.size() > 0) {
-                List<PiiProcessing.EntitySpan> piiEntitySpans = PiiProcessing.collectEntitySpans(piiEntities, text);
-                return PiiProcessing.redactData(piiEntitySpans, text);
-            }
-            logger.info("No PII entities found.");
-            return text;
+            return Transform.transformLabel(text);
         } catch (Exception e) {
             logger.error("Failed to process text: {}", e.getMessage());
             throw e;

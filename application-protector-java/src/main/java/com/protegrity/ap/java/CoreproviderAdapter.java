@@ -4,18 +4,26 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Base64;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.HttpRequestRetryHandler;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.protegrity.ap.java.auth.AuthProvider;
+import com.protegrity.ap.java.config.SDKConfig;
 
 /**
  * Adapter for communication with Protegrity Core Provider services.
@@ -161,6 +169,57 @@ public class CoreproviderAdapter {
         }
     }
 
+    /**
+     * Send an API request using the new auth provider pattern.
+     *
+     * @param operationType the operation (protect, unprotect, reprotect)
+     * @param jsonPayload   JSON request body
+     * @param authProvider  the authentication provider
+     * @param config        SDK configuration
+     * @return response body string
+     * @throws ProtectorException if the request fails
+     */
+    public String sendRequest(String operationType, String jsonPayload,
+                              AuthProvider authProvider, SDKConfig config) throws ProtectorException {
+        int timeoutSec = resolveTimeoutSeconds(config);
+        int maxRetries = resolveMaxRetries(config);
+
+        RequestConfig requestConfig = buildRequestConfig(timeoutSec * 1000);
+        HttpRequestRetryHandler retryHandler = buildRetryHandler(maxRetries);
+
+        CloseableHttpClient httpClient = HttpClientBuilder.create()
+                .setDefaultRequestConfig(requestConfig)
+                .setRetryHandler(retryHandler)
+                .build();
+
+        try (CloseableHttpClient client = httpClient) {
+            String urlStr = config.getBaseUrl(operationType);
+
+            // Build headers and apply auth
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", "application/json");
+
+            byte[] bodyBytes = jsonPayload.getBytes(StandardCharsets.UTF_8);
+            headers = authProvider.authenticateRequest("POST", urlStr, headers, bodyBytes);
+
+            // Create POST request
+            HttpPost httpPost = new HttpPost(urlStr);
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                httpPost.setHeader(entry.getKey(), entry.getValue());
+            }
+            httpPost.setEntity(new StringEntity(jsonPayload, StandardCharsets.UTF_8));
+
+            // Execute request
+            try (CloseableHttpResponse response = client.execute(httpPost)) {
+                String responseBody = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                return responseBody;
+            }
+        } catch (Exception e) {
+            logger.error("Error during API request: {}", e.getMessage(), e);
+            throw new ProtectorException("Error during API request: " + e.getMessage());
+        }
+    }
+
     public String buildProtectPayload(String user, String dataElementName, String[] input, byte[] externalIv, String encodingType) throws ProtectorException {
         StringBuilder jsonBuilder = new StringBuilder();
         if(user == null)
@@ -253,7 +312,9 @@ public class CoreproviderAdapter {
             boolean success = rootNode.has("success") && rootNode.get("success").asBoolean();
            
             if (!success) {
-            String errorMessage = rootNode.has("error_msg") ? rootNode.get("error_msg").asText() : "Unknown error";
+            String errorMessage = rootNode.has("error_msg") ? rootNode.get("error_msg").asText()
+                    : rootNode.has("message") ? rootNode.get("message").asText()
+                    : "Unknown error";
 
             // Get mapped error details
             ErrorMapper.ErrorDetail detail = ErrorMapper.getErrorDetail(errorMessage);
@@ -383,11 +444,11 @@ public class CoreproviderAdapter {
   
 
     public String getVersion() {
-        return "1.0.1";
+        return "1.0.2";
     }
 
     public String getCoreVersion() {
-        return "1.0.1";
+        return "1.0.2";
     }
   
     public void flush() throws ProtectorException {
@@ -462,6 +523,33 @@ public class CoreproviderAdapter {
         }
     }
 
+    // ── Resilience helpers (package-private for unit tests) ────────────────
+    // request_timeout is in seconds; clamp to at least 1s so a misconfig of
+    // "0" doesn't make every call fail instantly.
+    static int resolveTimeoutSeconds(SDKConfig config) {
+        return Math.max(1, config.getInt("request_timeout", 30));
+    }
 
+    // max_retries=0 disables retries entirely; negatives are clamped to 0.
+    static int resolveMaxRetries(SDKConfig config) {
+        return Math.max(0, config.getInt("max_retries", 3));
+    }
+
+    static RequestConfig buildRequestConfig(int timeoutMs) {
+        return RequestConfig.custom()
+                .setConnectTimeout(timeoutMs)
+                .setSocketTimeout(timeoutMs)
+                .setConnectionRequestTimeout(timeoutMs)
+                .build();
+    }
+
+    // Apache HttpClient's retry handler covers IOException-class failures
+    // (connection reset, timeout, etc.). It does NOT retry on HTTP status
+    // codes — for 429/5xx the caller will see the response and decide.
+    // requestSentRetryEnabled=false: don't retry once the request body has
+    // started being sent, to avoid accidental double-protect on flaky links.
+    static HttpRequestRetryHandler buildRetryHandler(int maxRetries) {
+        return new DefaultHttpRequestRetryHandler(maxRetries, false);
+    }
 
 }

@@ -71,6 +71,7 @@ public class Constants {
         // Security
         put("PASSWORD", "string");
         put("USERNAME", "string");
+        put("USER_NAME", "string");
         
         // Organization
         put("ORGANIZATION", "string");

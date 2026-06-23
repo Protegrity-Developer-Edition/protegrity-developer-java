@@ -21,7 +21,8 @@ import org.apache.http.util.EntityUtils;
 public class AuthTokenProvider {
     
     /**
-     * The hostname for Protegrity AI Developer Edition API.
+     * The default hostname for Protegrity AI Developer Edition API.
+     * Can be overridden by the {@code DEV_EDITION_HOST} environment variable.
      */
     public static final String DEV_EDITION_HOST = "api.developer-edition.protegrity.com";
     
@@ -39,7 +40,12 @@ public class AuthTokenProvider {
             throw new IllegalArgumentException("Email, password, and API key must not be null or empty");
         }
       
-        String baseUrl = "https://" + DEV_EDITION_HOST + "/auth/login";
+        String host = System.getenv("DEV_EDITION_HOST");
+        if (host == null || host.isEmpty()) {
+            host = DEV_EDITION_HOST;
+        }
+        String baseUrl = "https://" + host + "/auth/login";
+
         String payload = String.format("{\"email\":\"%s\", \"password\":\"%s\"}", email, password);
 
         try (CloseableHttpClient httpClient = HttpClients.createDefault()) {

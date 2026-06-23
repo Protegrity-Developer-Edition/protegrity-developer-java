@@ -36,9 +36,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/Protegrity-Developer-Edition/protegrity-ai-developer-java.git</connection>
-        <developerConnection>scm:git:git@github.com:Protegrity-Developer-Edition/protegrity-ai-developer-java.git</developerConnection>
-        <url>https://github.com/Protegrity-Developer-Edition/protegrity-ai-developer-java</url>
+        <connection>scm:git:git://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java.git</connection>
+        <developerConnection>scm:git:git@github.com:Protegrity-AI-Developer-Edition/protegrity-ai-developer-java.git</developerConnection>
+        <url>https://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java</url>
     </scm>
 
     <dependencies>

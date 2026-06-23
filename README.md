@@ -2,15 +2,15 @@
 <div align="center">
 
 # Protegrity AI Developer Edition Java
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg?style=flat)](https://github.com/Protegrity-Developer-Edition/protegrity-ai-developer-java/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](https://github.com/Protegrity-Developer-Edition/protegrity-ai-developer-java/blob/main/LICENSE)
+[![Version](https://img.shields.io/badge/version-1.1.0-green.svg?style=flat)](https://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](https://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java/blob/main/LICENSE)
 [![Java 11+](https://img.shields.io/badge/java-11+-blue.svg?style=flat)](https://www.oracle.com/java/technologies/javase-jdk11-downloads.html)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black)](https://www.linux.org/)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat&logo=windows&logoColor=white)](https://www.microsoft.com/windows/)
 [![macOS](https://img.shields.io/badge/mac%20os-000000?style=flat&logo=macos&logoColor=F0F0F0)](https://www.apple.com/macos/)
 [![Maven Central 1.1.0](https://img.shields.io/maven-central/v/com.protegrity/protegrity-ai-developer-edition.svg?style=flat)](https://search.maven.org/artifact/com.protegrity/protegrity-ai-developer-edition)
 [![Service Health](https://img.shields.io/badge/service-health-brightgreen.svg?style=flat&logo=statuspage&logoColor=white)](https://www.protegrity.com/developers/status)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Protegrity-Developer-Edition/protegrity-ai-developer-java)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java)
 
 </div>
 
@@ -73,7 +73,7 @@ Sensitive data shows up in more places than expected, such as logs, payloads, pr
 │   │   ├── main/java/com/protegrity/ap/java/
 │   │   └── test/
 │   └── target/
-│       └── ApplicationProtectorJava-1.0.2.jar
+│       └── ApplicationProtectorJava-1.1.0.jar
 ├── protegrity-ai-developer-edition/            # Developer utilities module
 │   ├── pom.xml
 │   ├── src/
@@ -138,7 +138,7 @@ No additional prerequisites required beyond the common ones.
 1.  Clone the repository.
 
     ```bash
-    git clone https://github.com/Protegrity-Developer-Edition/protegrity-ai-developer-java.git
+    git clone https://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java.git
     ```
 2.  Navigate to the `protegrity-ai-developer-java` directory
 3.  Build and install the modules by running the following command from the root directory of the repository.
@@ -148,8 +148,8 @@ No additional prerequisites required beyond the common ones.
     ```
     The build completes and the success message is displayed. 
     The following artifacts are created:
-    - `application-protector-java/target/ApplicationProtectorJava-1.0.2.jar` (fat JAR with dependencies)
-    - `protegrity-ai-developer-edition/target/ProtegrityAiDeveloperJava-1.0.2.jar` (fat JAR with dependencies)
+    - `application-protector-java/target/ApplicationProtectorJava-1.1.0.jar` (fat JAR with dependencies)
+    - `protegrity-ai-developer-edition/target/ProtegrityAiDeveloperJava-1.1.0.jar` (fat JAR with dependencies)
     - Maven artifacts in your local repository (`.m2/repository`)
 
 4.  To run integration tests (optional):
@@ -160,7 +160,7 @@ No additional prerequisites required beyond the common ones.
 
 ## Protegrity AI Developer Edition Module
 > **💡Note:** Ensure that the Protegrity AI Developer Edition is set up and running before using this module.
-For setup instructions, refer to the [Protegrity AI Developer Edition readme](https://github.com/Protegrity-Developer-Edition/protegrity-ai-developer-edition/blob/main/README.md) or the [Protegrity AI Developer Edition documentation](https://developer.docs.protegrity.com/).
+For setup instructions, refer to the [Protegrity AI Developer Edition readme](https://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-edition/blob/main/README.md) or the [Protegrity AI Developer Edition documentation](https://developer.docs.protegrity.com/).
 
 ### Usage Examples
 
@@ -364,5 +364,5 @@ Use this SDK to build GenAI applications like chatbots that:
 
 ## License
 
-See [LICENSE](https://github.com/Protegrity-Developer-Edition/protegrity-ai-developer-java/blob/main/LICENSE) for terms and conditions.
+See [LICENSE](https://github.com/Protegrity-AI-Developer-Edition/protegrity-ai-developer-java/blob/main/LICENSE) for terms and conditions.
 
